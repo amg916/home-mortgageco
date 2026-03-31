@@ -1,6 +1,18 @@
 import { useState, useRef } from 'react';
 import { submitLead as submitLeadAPI } from '@/services/api';
-import { useOmnisend } from './useOmnisend';  
+import { useOmnisend } from './useOmnisend';
+
+// Tag Microsoft Clarity session with lead data
+function tagClarity(tags: Record<string, string | undefined>) {
+  try {
+    const w = window as any;
+    if (w.clarity) {
+      for (const [key, val] of Object.entries(tags)) {
+        if (val) w.clarity("set", key, val);
+      }
+    }
+  } catch { /* non-fatal */ }
+}
 
 interface UseLeadSubmissionResult {
   isSubmitting: boolean;
@@ -41,6 +53,16 @@ export const useLeadSubmission = (): UseLeadSubmissionResult => {
         // For other flows, use mortgage_specialist from popup
         leadData.mortgage_specialist = readyToSpeak ? 'Yes' : 'No';
       }
+
+      // Tag Clarity session with lead data
+      tagClarity({
+        session_id: leadData.session_id,
+        source: leadData.s1 || leadData.lp_subid1 || leadData.source || 'direct',
+        loan_type: serviceType,
+        state: leadData.state || formData.state,
+        brand: 'mortgageco',
+        landing_page: window.location.pathname,
+      });
 
       // Single unified API call to HeftyCC
       await submitLeadAPI(leadData);
