@@ -3,6 +3,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+// Capture URL tracking params (s1, utm_source, etc.) into localStorage immediately
+import '@/services/api';
 import Index from "./pages/Index";
 import Heloc from "./pages/Heloc";
 import Cashout from "./pages/Cashout";
