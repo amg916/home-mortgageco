@@ -187,6 +187,89 @@ export const clearTrackingParams = () => {
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 };
 
+// ── Clarity Session Integration ──────────────────────────────────────
+declare global {
+  interface Window {
+    clarity?: (...args: any[]) => void;
+  }
+}
+
+// Get the Clarity session ID from cookies or sessionStorage
+function getClaritySessionId(): string {
+  try {
+    // Method 1: _clsk cookie (Clarity session cookie)
+    const clskCookie = document.cookie
+      .split(';')
+      .find(c => c.trim().startsWith('_clsk='));
+    if (clskCookie) {
+      const val = clskCookie.split('=')[1]?.split('|')[0];
+      if (val) return val;
+    }
+    // Method 2: _clck cookie (Clarity user cookie — persists across sessions)
+    const clckCookie = document.cookie
+      .split(';')
+      .find(c => c.trim().startsWith('_clck='));
+    if (clckCookie) {
+      const val = clckCookie.split('=')[1]?.split('|')[0];
+      if (val) return val;
+    }
+  } catch { /* ignore */ }
+  return '';
+}
+
+// Tag the Clarity session with custom metadata for filtering in the Clarity dashboard
+function tagClaritySession(tags: Record<string, string>): void {
+  try {
+    if (typeof window !== 'undefined' && window.clarity) {
+      for (const [key, value] of Object.entries(tags)) {
+        if (value) {
+          window.clarity('set', key, value);
+        }
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+// Tag Clarity with initial tracking info on page load
+function initClarityTagging(): void {
+  try {
+    const p = getTrackingParams();
+    const s1 = p.s1 || p.sub1 || p.subid1 || p.click_id || p.lp_subid1 || p.utm_source || '';
+
+    // Wait for Clarity to initialize (up to 5 seconds)
+    let attempts = 0;
+    const tryTag = () => {
+      if (window.clarity) {
+        tagClaritySession({
+          source: s1 || 'direct',
+          utm_source: p.utm_source || '',
+          utm_campaign: p.utm_campaign || '',
+          page_type: window.location.pathname.replace(/^\//, '').split('/')[0] || 'landing',
+        });
+
+        // If we have a Hefty attribution cookie, tag that too
+        try {
+          const heftyAttrib = localStorage.getItem('hefty_attrib_v1');
+          if (heftyAttrib) {
+            const attrib = JSON.parse(heftyAttrib);
+            if (attrib.click_id) {
+              window.clarity!('identify', attrib.click_id);
+              window.clarity!('set', 'hefty_click_id', attrib.click_id);
+            }
+          }
+        } catch { /* ignore */ }
+      } else if (attempts < 50) {
+        attempts++;
+        setTimeout(tryTag, 100);
+      }
+    };
+    tryTag();
+  } catch { /* ignore */ }
+}
+
+// Run Clarity tagging after initial tracking param capture
+initClarityTagging();
+
 // Detect campaign source from current URL path
 const getCampaignSource = (): string => {
   const validSources = ['refinance', 'cashout', 'heloc', 'purchase', 'sell', 'extras', 'thank-you', 'start'];
@@ -211,6 +294,17 @@ const enhanceLeadData = async (data: any): Promise<any> => {
     return urlValue;
   };
 
+  // Capture Clarity session ID for lead-to-recording mapping
+  const clarity_session_id = getClaritySessionId();
+
+  // Tag Clarity with session + lead context for searchability
+  tagClaritySession({
+    session_id,
+    loan_type: getCampaignSource(),
+    state: data.state || '',
+    zip: data.zip_code || data.zip || '',
+  });
+
   return {
     ...data,
     ip_address,
@@ -219,6 +313,9 @@ const enhanceLeadData = async (data: any): Promise<any> => {
     session_id,
     brand: 'mortgageco',
     source: getCampaignSource(),
+    // Clarity session for recording link
+    clarity_session_id,
+    clarity_project_id: 'w48v3e4bmc',
     // Tracking params — localStorage-backed, survives full form journey
     ef_transaction_id: getFieldValue(data.ef_transaction_id, urlParams.ef_transaction_id),
     id: getFieldValue(data.id, urlParams.id),
